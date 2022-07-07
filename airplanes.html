@@ -1,0 +1,637 @@
+<html>
+<head>
+<style type="text/css">
+table.map {
+	border-right: 1px solid black;
+	border-bottom: 1px solid black;
+}
+table.map td {
+	padding: 0px;
+	margin: 0px;
+	border-left: 1px solid black;
+	border-top: 1px solid black;
+	background-color: #ccddff;
+	width: 50px;
+	height: 50px;
+	font-family: arial;
+	font-size: 30px;
+	text-align: center;
+}
+table#computer_map td:hover {
+	cursor: crosshair;
+}
+</style>
+<script>
+var maps = new Array();
+var human_orientation = "N";
+var human_ai_count = 0;
+var human_dead_airplanes = 0;
+var computer_ai_count = 0;
+var computer_dead_airplanes = 0;
+var human_victories = 0;
+var computer_victories = 0;
+var difficulty = 75;
+
+class Airplane {
+	constructor() {
+		this.head = new Object();
+		this.head.x = 0;
+		this.head.y = 0;
+		this.orientation = "N";
+		this.side = "human";
+		this.cells = new Array();
+	}
+	
+	get_cells() {
+		if(this.cells.length > 0)
+			return this.cells;
+			
+		this.cells[0] = this.head;
+		switch(this.orientation) {
+			case "N":
+				for(var i = 1; i <= 5; i++) // wings
+					this.cells[i] = {x: (this.head.x - 3 + i), y: this.head.y + 1};
+				this.cells[6] = {x: this.head.x, y: this.head.y + 2}; // body
+				for(var i = 1; i <= 3; i++)
+					this.cells[i+6] = {x: (this.head.x - 2 + i), y: this.head.y + 3};
+				break;
+			case "W":
+				for(var i = 1; i <= 5; i++) // wings
+					this.cells[i] = {x: (this.head.x + 1), y: (this.head.y + 3 - i)};
+				this.cells[6] = {x: this.head.x + 2, y: this.head.y}; // body
+				for(var i = 1; i <= 3; i++)
+					this.cells[i+6] = {x: (this.head.x + 3), y: (this.head.y + 2 - i)};
+				break;
+			case "S":
+				for(var i = 1; i <= 5; i++) // wings
+					this.cells[i] = {x: (this.head.x - 3 + i), y: this.head.y - 1};
+				this.cells[6] = {x: this.head.x, y: this.head.y - 2}; // body
+				for(var i = 1; i <= 3; i++)
+					this.cells[i+6] = {x: (this.head.x - 2 + i), y: this.head.y - 3};
+				break;
+			case "E":
+				for(var i = 1; i <= 5; i++) // wings
+					this.cells[i] = {x: (this.head.x - 1), y: (this.head.y + 3 - i)};
+				this.cells[6] = {x: this.head.x - 2, y: this.head.y}; // body
+				for(var i = 1; i <= 3; i++)
+					this.cells[i+6] = {x: (this.head.x - 3), y: (this.head.y + 2 - i)};
+				break;
+		}
+		return this.cells;
+	}
+	
+	mark_dead() {
+		this.get_cells();
+		for(var i = 0; i < this.cells.length; i++) {
+			maps["probabilities"][this.cells[i].y][this.cells[i].x].matter = "dead";
+			maps["probabilities"][this.cells[i].y][this.cells[i].x].score = 0;
+		}
+	}
+	
+	is_valid() {
+		this.get_cells();
+		for(var i = 0; i < this.cells.length; i++) {
+			if(this.cells[i].x < 0 || this.cells[i].y < 0 || this.cells[i].x >= 10 || this.cells[i].y >= 10)
+				return false;
+			if(maps[this.side][this.cells[i].y][this.cells[i].x].matter != "sky")
+				return false;
+		}
+		return true;
+	}
+	
+	fit() {
+		this.get_cells();
+		for(var i = 0; i < this.cells.length; i++) {
+			if(this.cells[i].x < 0 || this.cells[i].x > 9 || this.cells[i].y < 0 || this.cells[i].y > 9)
+				return false;
+				
+			var m = maps["probabilities"][this.cells[i].y][this.cells[i].x].matter;
+			if(i == 0) {
+				if(m != "head" && m != "unknown")
+					return false;
+			}
+			else {
+				if(m != "body" && m != "unknown")
+					return false;
+			}
+		}
+		return true;
+	}
+	
+	fit_score() {
+		var ret = 0;
+		this.get_cells();
+		for(var i = 1; i < this.cells.length; i++) {
+			if(this.cells[i].x < 0 || this.cells[i].x > 9 || this.cells[i].y < 0 || this.cells[i].y > 9)
+				return 0;
+			var cell = maps["probabilities"][this.cells[i].y][this.cells[i].x];
+			if(cell.matter == "body")
+				ret += 2;
+		}
+		return ret;
+	}
+	
+	draw() {
+		this.get_cells();
+		var tbl = document.getElementById(this.side + "_map");
+		var rows = tbl.getElementsByTagName("tr");
+		for(var i = 0; i < this.cells.length; i++) {
+			var row = rows[this.cells[i].y];
+			var td = row.getElementsByTagName("td")[this.cells[i].x];
+			td.style.backgroundColor = (i == 0) ? "#666666" : "#999999";
+		}
+	}
+	
+	preview() {
+		this.get_cells();
+		var v = this.is_valid();
+		var tbl = document.getElementById(this.side + "_map");
+		var rows = tbl.getElementsByTagName("tr");
+		for(var i = 0; i < this.cells.length; i++) {
+			if(this.cells[i].x >= 0 && this.cells[i].y >= 0 && this.cells[i].x < 10 && this.cells[i].y < 10) {
+				var row = rows[this.cells[i].y];
+				var td = row.getElementsByTagName("td")[this.cells[i].x];
+				if(v)
+					td.style.backgroundColor = (i == 0) ? "#666666" : "#999999";
+				else
+					td.style.backgroundColor = "pink";
+			}
+		}
+	}
+	
+	remove_preview() {
+		this.get_cells();
+		var tbl = document.getElementById("human_map");
+		var rows = tbl.getElementsByTagName("tr");
+		for(var i = 0; i < this.cells.length; i++) {
+			if(this.cells[i].x >= 0 && this.cells[i].y >= 0 && this.cells[i].x < 10 && this.cells[i].y < 10) {
+				var row = rows[this.cells[i].y];
+				var td = row.getElementsByTagName("td")[this.cells[i].x];
+				switch(maps["human"][this.cells[i].y][this.cells[i].x].matter) {
+					case "sky":
+						td.style.backgroundColor = "#ccddff";
+						break;
+					case "head":
+						td.style.backgroundColor = "#666666";
+						break;
+					case "body":
+						td.style.backgroundColor = "#999999";
+						break;
+				}
+			}
+		}
+	}
+	
+	remove() {
+		for(var i = 0; i < 10; i++) {
+			maps["human"][this.cells[i].y][this.cells[i].x].matter = "sky";
+		}
+		this.remove_preview();
+		maps["human"][this.cells[0].y][this.cells[0].x].airplane = 0;
+	}
+}
+
+function preview_airplane() {
+	if(human_ai_count >= 3)
+		return;
+	var td = event.srcElement;
+	var tr = event.srcElement.parentElement;
+	var x = td.cellIndex;
+	var y = tr.rowIndex;
+	if(maps["human"][y][x].matter == "head") {
+		td.style.cursor = "crosshair";
+	}
+	else {
+		var ai = new Airplane();
+		ai.head.x = x;
+		ai.head.y = y;
+		ai.orientation = human_orientation;
+		ai.side = "human";
+		ai.preview();
+	}
+}
+
+function remove_preview() {
+	if(human_ai_count >= 3)
+		return;
+	var td = event.srcElement;
+	var tr = event.srcElement.parentElement;
+	var x = td.cellIndex;
+	var y = tr.rowIndex;
+	td.style.cursor = "";
+	var ai = new Airplane();
+	ai.head.x = x;
+	ai.head.y = y;
+	ai.orientation = human_orientation;
+	ai.side = "human";
+	ai.remove_preview();
+}
+
+function td_human_click() {
+	if(human_ai_count >= 3)
+		return;
+	var td = event.srcElement;
+	var tr = event.srcElement.parentElement;
+	var x = td.cellIndex;
+	var y = tr.rowIndex;
+	var ai = new Airplane();
+	ai.head.x = x;
+	ai.head.y = y;
+	ai.orientation = human_orientation;
+	ai.side = "human";
+	if(ai.is_valid()) {
+		maps["human"][ai.cells[0].y][ai.cells[0].x].matter = "head";
+		for(var i = 1; i < 10; i++)
+			maps["human"][ai.cells[i].y][ai.cells[i].x].matter = "body";
+		maps["human"][ai.cells[0].y][ai.cells[0].x].airplane = ai;
+		human_ai_count++;
+		if(human_ai_count >= 3) {
+			document.getElementById("div_change_orientation").style.display = "none";
+			computer_place_random_airplanes();
+		}
+	}
+	else if(maps["human"][ai.cells[0].y][ai.cells[0].x].matter == "head") {
+		ai2 = maps["human"][ai.cells[0].y][ai.cells[0].x].airplane;
+		if(ai2 != 0) {
+			ai2.remove();
+			human_ai_count--;
+		}
+	}
+}
+
+function td_computer_map_click() {
+	if(human_ai_count != 3 || computer_ai_count != 3 || computer_dead_airplanes == 3 || human_dead_airplanes == 3)
+		return;
+	var td = event.srcElement;
+	var tr = event.srcElement.parentElement;
+	var x = td.cellIndex;
+	var y = tr.rowIndex;
+	if(maps["computer"][y][x].shot != 0)
+		return;
+	maps["computer"][y][x].shot = "X";
+	td.innerHTML = "X";
+	switch(maps["computer"][y][x].matter) {
+		case "sky":
+			td.style.backgroundColor = "#ccddff";
+			break;
+		case "head":
+			td.style.backgroundColor = "#666666";
+			computer_dead_airplanes++;
+			break;
+		case "body":
+			td.style.backgroundColor = "#999999";
+			break;
+	}
+	if(computer_dead_airplanes == 3) {
+		human_winner();
+		return;
+	}
+	computer_turn();
+}
+
+function human_winner() {
+	human_victories++;
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["computer"][i][j].airplane != 0)
+				maps["computer"][i][j].airplane.draw();
+		}
+	}
+	document.getElementById("div_shoot_msg").style.display = "none";
+	document.getElementById("div_human_winner").style.display = "block";
+	document.getElementById("span_human_victories").innerHTML = human_victories;
+}
+
+function computer_winner() {
+	computer_victories++;
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["computer"][i][j].airplane != 0)
+				maps["computer"][i][j].airplane.draw();
+		}
+	}
+	document.getElementById("div_shoot_msg").style.display = "none";
+	document.getElementById("div_computer_winner").style.display = "block";
+	document.getElementById("span_computer_victories").innerHTML = computer_victories;
+}
+
+function computer_place_random_airplane() {
+	var available_positions = new Array();
+	var orientations = new Array("N", "W", "S", "E");
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			for(var k = 0; k < 4; k++) {
+				var a = new Airplane();
+				a.head.x = i;
+				a.head.y = j;
+				a.orientation = orientations[k];
+				a.side = "computer";
+				if(a.is_valid())
+					available_positions[available_positions.length] = a;
+			}
+		}
+	}
+	if(available_positions.length == 0)
+		return false;
+	var r = Math.round(Math.random() * (available_positions.length - 1));
+	a = available_positions[r];
+	maps["computer"][a.cells[0].y][a.cells[0].x].matter = "head";
+	for(i = 1; i < 10; i++)
+		maps["computer"][a.cells[i].y][a.cells[i].x].matter = "body";
+	maps["computer"][a.cells[0].y][a.cells[0].x].airplane = a;
+	computer_ai_count++;
+}
+
+function computer_place_random_airplanes() {
+	document.getElementById("div_computer_placing").style.display = "block";
+	for(var i = 0; i < 3; i++)
+		computer_place_random_airplane();
+	document.getElementById("div_computer_placing").style.display = "none";
+	document.getElementById("div_shoot_msg").style.display = "block";
+}
+
+function computer_prepare_probabilities() {
+	var orientations = new Array("N", "W", "S", "E");
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["probabilities"][j][i].matter == "head") {
+				var fit = new Array();
+				for(var k = 0; k < 4; k++) {
+					var a = new Airplane();
+					a.head.x = i;
+					a.head.y = j;
+					a.orientation = orientations[k];
+					a.side = "probabilities";
+					fit[k] = a.fit();
+				}
+				for(var k = 0; k < 4; k++) {
+					if(fit[k] && !fit[(k + 1) % 4] && !fit[(k + 2) % 4] && !fit[(k + 3) % 4]) {
+						var a = new Airplane();
+						a.head.x = i;
+						a.head.y = j;
+						a.orientation = orientations[k];
+						a.side = "probabilities";
+						a.mark_dead();
+					}
+				}
+			}
+		}
+	}
+	
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["probabilities"][j][i].score != 0) {
+				var fit_score = 0;
+				for(var k = 0; k < 4; k++) {
+					var a = new Airplane();
+					a.head.x = i;
+					a.head.y = j;
+					a.orientation = orientations[k];
+					a.side = "probabilities";
+					if(a.fit())
+						fit_score += 1 + a.fit_score();
+				}
+				maps["probabilities"][j][i].score = 50 + fit_score;
+			}
+		}
+	}
+}
+
+function computer_shoot() {
+	var max = 0;
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["probabilities"][i][j].score > max)
+				max = maps["probabilities"][i][j].score;
+		}
+	}
+	var cells = new Array();
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["probabilities"][i][j].score == max)
+				cells[cells.length] = {x: j, y: i};
+		}
+	}
+	var r = Math.round(Math.random() * (cells.length - 1));
+	maps["probabilities"][cells[r].y][cells[r].x].matter = maps["human"][cells[r].y][cells[r].x].matter;
+	maps["probabilities"][cells[r].y][cells[r].x].score = 0;
+	if(maps["probabilities"][cells[r].y][cells[r].x].matter == "head")
+		human_dead_airplanes++;
+	var tbl = document.getElementById("human_map");
+	var tr = tbl.getElementsByTagName("tr")[cells[r].y];
+	var td = tr.getElementsByTagName("td")[cells[r].x];
+	td.innerHTML = "X";
+}
+
+function computer_random_shoot() {
+	var cells = new Array();
+	for(var i = 0; i < 10; i++) {
+		for(var j = 0; j < 10; j++) {
+			if(maps["probabilities"][i][j].matter == "unknown")
+				cells[cells.length] = {x: j, y: i};
+		}
+	}
+	var r = Math.round(Math.random() * (cells.length - 1));
+	maps["probabilities"][cells[r].y][cells[r].x].matter = maps["human"][cells[r].y][cells[r].x].matter;
+	maps["probabilities"][cells[r].y][cells[r].x].score = 0;
+	if(maps["probabilities"][cells[r].y][cells[r].x].matter == "head")
+		human_dead_airplanes++;
+	var tbl = document.getElementById("human_map");
+	var tr = tbl.getElementsByTagName("tr")[cells[r].y];
+	var td = tr.getElementsByTagName("td")[cells[r].x];
+	td.innerHTML = "X";
+}
+
+function computer_turn() {
+	var r = Math.floor(Math.random() * 100);
+	if(r > difficulty) {
+		computer_random_shoot();
+		return;
+	}
+	else {
+		computer_prepare_probabilities();
+		computer_shoot();
+	}
+	if(human_dead_airplanes == 3)
+		computer_winner();
+}
+
+function body_onload() {
+	var human_table = document.getElementById("human_map");
+	var rows = human_table.getElementsByTagName("tr");
+	for(var i = 0; i < rows.length; i++) {
+		var row = rows[i];
+		var cells = row.getElementsByTagName("td");
+		for(var j = 0 ; j < cells.length; j++) {
+			var td = cells[j];
+			td.onmouseover = preview_airplane;
+			td.onmouseout = remove_preview;
+			td.onclick = td_human_click;
+		}
+	}
+	
+	var computer_table = document.getElementById("computer_map");
+	var rows = computer_table.getElementsByTagName("tr");
+	for(var i = 0; i < rows.length; i++) {
+		var row = rows[i];
+		var cells = row.getElementsByTagName("td");
+		for(var j = 0 ; j < cells.length; j++) {
+			var td = cells[j];
+			td.onclick = td_computer_map_click;
+		}
+	}
+	start_new_game();
+}
+
+function start_new_game() {
+	maps = new Array();
+	human_orientation = "N";
+	human_ai_count = 0;
+	human_dead_airplanes = 0;
+	computer_ai_count = 0;
+	computer_dead_airplanes = 0;
+	
+	var human_table = document.getElementById("human_map");
+	var rows = human_table.getElementsByTagName("tr");
+	for(var i = 0; i < rows.length; i++) {
+		var row = rows[i];
+		var cells = row.getElementsByTagName("td");
+		for(var j = 0 ; j < cells.length; j++) {
+			var td = cells[j];
+			td.innerHTML = "";
+			td.style.backgroundColor = "#ccddff";
+		}
+	}
+	
+	var computer_table = document.getElementById("computer_map");
+	var rows = computer_table.getElementsByTagName("tr");
+	for(var i = 0; i < rows.length; i++) {
+		var row = rows[i];
+		var cells = row.getElementsByTagName("td");
+		for(var j = 0 ; j < cells.length; j++) {
+			var td = cells[j];
+			td.innerHTML = "";
+			td.style.backgroundColor = "#ccddff";
+		}
+	}
+	maps["human"] = new Array();
+	maps["computer"] = new Array();
+	maps["probabilities"] = new Array();
+	for(var i = 0; i < 10; i++) {
+		maps["human"][i] = new Array();
+		maps["computer"][i] = new Array();
+		maps["probabilities"][i] = new Array();
+		for(var j = 0; j < 10; j++) {
+			maps["human"][i][j] = new Array();
+			maps["computer"][i][j] = new Array();
+			maps["probabilities"][i][j] = new Array();
+			maps["human"][i][j].matter = "sky";
+			maps["computer"][i][j].matter = "sky";
+			maps["probabilities"][i][j].matter = "unknown";
+			maps["probabilities"][i][j].score = 50;
+			maps["human"][i][j].airplane = 0;
+			maps["computer"][i][j].airplane = 0;
+			maps["human"][i][j].shot = 0;
+			maps["computer"][i][j].shot = 0;
+		}
+	}
+	document.getElementById("img_orientation").src = "ai_orientation_N.jpg";
+	document.getElementById("div_change_orientation").style.display = "block";
+	document.getElementById("div_human_winner").style.display = "none";
+	document.getElementById("div_computer_placing").style.display = "none";
+	document.getElementById("div_shoot_msg").style.display = "none";
+	document.getElementById("div_computer_winner").style.display = "none";
+}
+
+function change_orientation_cw() {
+	var orientations = new Array("N", "E", "S", "W");
+	var ii = 0;
+	for(var i = 0; i < 4; i++)
+		if(human_orientation == orientations[i])
+			ii = i;
+	human_orientation = orientations[(ii + 1) % 4];
+	var img = document.getElementById("img_orientation");
+	img.src = "ai_orientation_" + human_orientation + ".jpg";
+}
+
+function change_orientation_ccw() {
+	var orientations = new Array("N", "W", "S", "E");
+	var ii = 0;
+	for(var i = 0; i < 4; i++)
+		if(human_orientation == orientations[i])
+			ii = i;
+	human_orientation = orientations[(ii + 1) % 4];
+	var img = document.getElementById("img_orientation");
+	img.src = "ai_orientation_" + human_orientation + ".jpg";
+}
+
+function change_difficulty(el) {
+	difficulty = el.value;
+}
+
+</script>
+</head>
+<body onload="body_onload(); ">
+<table>
+<tr>
+<td valign="top">
+	Human (victories: <span id="span_human_victories">0</span>)
+	<table id="human_map" class="map">
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	</table>
+	<br>
+	<div id="div_change_orientation">
+		<div style="width: 200px; float: right; ">
+		Click on the left map to place your 3 airplanes. Click on the green arrows to rotate the plane.
+		</div>
+		<img src="rotate_cw.jpg" onclick="change_orientation_cw(); ">
+		<img src="ai_orientation_N.jpg" id="img_orientation">
+		<img src="rotate_ccw.jpg" onclick="change_orientation_ccw(); ">
+	</div>
+	<div id="div_human_winner" style="display: none; ">Human is the winner!</div>
+</td>
+
+<td style="padding-left: 50px; " valign="top">
+	Computer (victories: <span id="span_computer_victories">0</span>)
+	<table id="computer_map" class="map">
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+	</table>
+	<div id="div_computer_placing" style="display: none; ">Please wait, the computer is placing it's airplanes on the map</div>
+	<div id="div_shoot_msg" style="display: none; ">It's your turn: click on the computer's map to shoot. The aim is to shoot each enemy airplane in the head.</div>
+	<div id="div_computer_winner" style="display: none; ">Computer is the winner!</div>
+	
+	<p>
+	<form id="form_change_difficulty" onsubmit="return false; ">
+	Choose difficulty: <br>
+	<input type="radio" name="input_difficulty" value="100" onchange="change_difficulty(this); "> 100% (difficult)<br>
+	<input type="radio" name="input_difficulty" value="75" onchange="change_difficulty(this); " checked> 75% (medium)<br>
+	<input type="radio" name="input_difficulty" value="50" onchange="change_difficulty(this); "> 50% (low)
+	</form>
+	</p>
+
+	<p><input type="button" onclick="start_new_game(); " value="Start new game"></p>
+	
+	<p style="text-align: right; "><a href="https://github.com/huleacatalin/airplanes" target="_blank">https://github.com/huleacatalin/airplanes</a></p>
+</td>
+</tr>
+</table>
+</body>
+</html>
