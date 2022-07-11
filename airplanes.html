@@ -1,5 +1,6 @@
 <html>
 <head>
+<title>Airplanes</title>
 <style type="text/css">
 table.map {
 	border-right: 1px solid black;
@@ -431,7 +432,6 @@ function computer_random_shoot() {
 				cells[cells.length] = {x: j, y: i};
 		}
 	}
-	alert(cells.length + " / " + difficulty);
 	var r = Math.round(Math.random() * (cells.length - 1));
 	maps["probabilities"][cells[r].y][cells[r].x].matter = maps["human"][cells[r].y][cells[r].x].matter;
 	maps["probabilities"][cells[r].y][cells[r].x].score = 0;
