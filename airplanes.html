@@ -431,6 +431,7 @@ function computer_random_shoot() {
 				cells[cells.length] = {x: j, y: i};
 		}
 	}
+	alert(cells.length + " / " + difficulty);
 	var r = Math.round(Math.random() * (cells.length - 1));
 	maps["probabilities"][cells[r].y][cells[r].x].matter = maps["human"][cells[r].y][cells[r].x].matter;
 	maps["probabilities"][cells[r].y][cells[r].x].score = 0;
@@ -446,7 +447,6 @@ function computer_turn() {
 	var r = Math.floor(Math.random() * 100);
 	if(r > difficulty) {
 		computer_random_shoot();
-		return;
 	}
 	else {
 		computer_prepare_probabilities();
